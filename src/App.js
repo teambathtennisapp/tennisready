@@ -31,9 +31,11 @@ const Label = ({ children }) => (
     color:"#666", fontFamily:"monospace", marginBottom:10 }}>{children}</div>
 );
 
-function SliderField({ label, value, onChange, min=1, max=10, unit="" }) {
+function SliderField({ label, value, onChange, min=1, max=10, unit="", invert=false }) {
   const pct   = ((value ?? min) - min) / (max - min);
-  const color = pct >= 0.66 ? "#4EB87A" : pct >= 0.33 ? "#F5A623" : "#E05C5C";
+  const color = invert
+  ? (pct >= 0.66 ? "#E05C5C" : pct >= 0.33 ? "#F5A623" : "#4EB87A")
+  : (pct >= 0.66 ? "#4EB87A" : pct >= 0.33 ? "#F5A623" : "#E05C5C");
   return (
     <div style={{ marginBottom:24 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
@@ -229,7 +231,7 @@ function MorningSheet({ name, onComplete }) {
       <SliderField label="Hours of sleep" value={data.sleepHrs}
         onChange={v=>set("sleepHrs",v)} min={1} max={12} unit="h"/>
       <SliderField label="Muscle soreness" value={data.soreness}
-        onChange={v=>set("soreness",v)} min={1} max={5}/>
+        onChange={v=>set("soreness",v)} min={1} max={5} invert/>
       <RAGField label="Motivation" value={data.motivation} onChange={v=>set("motivation",v)}/>
       <UrineField value={data.urine} onChange={v=>set("urine",v)}/>
       <TextField label="What did you have for breakfast?" value={data.breakfast}
