@@ -3,10 +3,10 @@ import { db } from "./firebase";
 import {
   collection, addDoc, query, where, getDocs, orderBy, doc, setDoc, getDoc
 } from "firebase/firestore";
-
+ 
 // ── Config ─────────────────────────────────────────────────────────────────
 const COACH_PASSWORD = "teambath2024";
-
+ 
 // ── Constants ───────────────────────────────────────────────────────────────
 const EMOTIONS   = ["😊 Happy","😢 Sad","😴 Exhausted","🤩 Excited","😰 Stressed","😌 Calm"];
 const URINE      = [
@@ -24,13 +24,13 @@ const ragColor    = v => RAG.find(r => r.label === v)?.color ?? "#555";
 const today       = () => new Date().toISOString().slice(0,10);
 const fmt         = d => new Date(d+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"});
 const fmtFull     = d => new Date(d+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
-
+ 
 // ── Shared UI ───────────────────────────────────────────────────────────────
 const Label = ({ children }) => (
   <div style={{ fontSize:11, letterSpacing:"0.09em", textTransform:"uppercase",
     color:"#666", fontFamily:"monospace", marginBottom:10 }}>{children}</div>
 );
-
+ 
 function SliderField({ label, value, onChange, min=1, max=10, unit="", invert=false }) {
   const pct = ((value ?? min) - min) / (max - min);
   const color = invert
@@ -61,7 +61,7 @@ function SliderField({ label, value, onChange, min=1, max=10, unit="", invert=fa
     </div>
   );
 }
-
+ 
 function RAGField({ label, value, onChange }) {
   return (
     <div style={{ marginBottom:24 }}>
@@ -81,7 +81,7 @@ function RAGField({ label, value, onChange }) {
     </div>
   );
 }
-
+ 
 function MultiSelect({ label, options, value=[], onChange }) {
   const toggle = opt => onChange(value.includes(opt) ? value.filter(v=>v!==opt) : [...value, opt]);
   return (
@@ -105,7 +105,7 @@ function MultiSelect({ label, options, value=[], onChange }) {
     </div>
   );
 }
-
+ 
 function ButtonGroup({ label, options, value, onChange }) {
   return (
     <div style={{ marginBottom:24 }}>
@@ -125,7 +125,7 @@ function ButtonGroup({ label, options, value, onChange }) {
     </div>
   );
 }
-
+ 
 function TextField({ label, value, onChange, placeholder="" }) {
   return (
     <div style={{ marginBottom:24 }}>
@@ -139,7 +139,7 @@ function TextField({ label, value, onChange, placeholder="" }) {
     </div>
   );
 }
-
+ 
 function UrineField({ value, onChange }) {
   return (
     <div style={{ marginBottom:24 }}>
@@ -167,7 +167,7 @@ function UrineField({ value, onChange }) {
     </div>
   );
 }
-
+ 
 function ProgressDots({ step }) {
   return (
     <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:28 }}>
@@ -186,7 +186,7 @@ function ProgressDots({ step }) {
     </div>
   );
 }
-
+ 
 // ── Mini Sparkline ──────────────────────────────────────────────────────────
 function Sparkline({ data, max, invert, color }) {
   if (!data || data.length < 2) return null;
@@ -203,16 +203,16 @@ function Sparkline({ data, max, invert, color }) {
     </svg>
   );
 }
-
+ 
 // ── Player History Dashboard ────────────────────────────────────────────────
 function PlayerHistory({ name, onBack }) {
   const [morningData, setMorningData] = useState([]);
   const [trainingData, setTrainingData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
-
+ 
   useEffect(() => { loadData(); }, []);
-
+ 
   const loadData = async () => {
     setLoading(true);
     try {
@@ -224,19 +224,19 @@ function PlayerHistory({ name, onBack }) {
     } catch(e) { console.error(e); }
     setLoading(false);
   };
-
+ 
   const avgOf = (arr, key) => {
     const vals = arr.map(e=>e[key]).filter(v=>v!=null);
     return vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : "–";
   };
-
+ 
   const last7 = morningData.slice(0,7).reverse();
   const sleepTrend = last7.map(e=>e.sleepHrs).filter(v=>v!=null);
   const sorenessTrend = last7.map(e=>e.soreness).filter(v=>v!=null);
   const moodTrend = last7.map(e=>e.mood).filter(v=>v!=null);
-
+ 
   const recentDates = [...new Set([...morningData, ...trainingData].map(e=>e.date))].sort().reverse().slice(0,14);
-
+ 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
       <div style={{ padding:"24px 24px 0", display:"flex", alignItems:"center", gap:12, borderBottom:"1px solid #1E252E", paddingBottom:20 }}>
@@ -246,7 +246,7 @@ function PlayerHistory({ name, onBack }) {
           <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, letterSpacing:"-0.02em" }}>{name}</h2>
         </div>
       </div>
-
+ 
       {/* Tabs */}
       <div style={{ display:"flex", borderBottom:"1px solid #1E252E" }}>
         {["overview","history"].map(t => (
@@ -259,12 +259,12 @@ function PlayerHistory({ name, onBack }) {
           </button>
         ))}
       </div>
-
+ 
       {loading ? (
         <p style={{ color:"#555", fontFamily:"monospace", textAlign:"center", marginTop:48 }}>Loading...</p>
       ) : (
         <div style={{ padding:"20px 24px", maxWidth:520, margin:"0 auto" }}>
-
+ 
           {tab==="overview" && (
             <>
               {/* Stats */}
@@ -280,7 +280,7 @@ function PlayerHistory({ name, onBack }) {
                   </div>
                 ))}
               </div>
-
+ 
               {/* Trends */}
               <div style={{ background:"#161B22", borderRadius:12, padding:"18px", marginBottom:16 }}>
                 <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:16 }}>Last 7 Days</div>
@@ -298,7 +298,7 @@ function PlayerHistory({ name, onBack }) {
                   </div>
                 ))}
               </div>
-
+ 
               {/* Motivation streak */}
               <div style={{ background:"#161B22", borderRadius:12, padding:"18px", marginBottom:16 }}>
                 <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Motivation — Last 7 Days</div>
@@ -314,7 +314,7 @@ function PlayerHistory({ name, onBack }) {
                   })}
                 </div>
               </div>
-
+ 
               {/* Training */}
               {trainingData.length > 0 && (
                 <div style={{ background:"#161B22", borderRadius:12, padding:"18px" }}>
@@ -334,7 +334,7 @@ function PlayerHistory({ name, onBack }) {
               )}
             </>
           )}
-
+ 
           {tab==="history" && (
             <>
               <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:16 }}>
@@ -385,7 +385,7 @@ function PlayerHistory({ name, onBack }) {
     </div>
   );
 }
-
+ 
 // ── Morning Sheet ───────────────────────────────────────────────────────────
 function MorningSheet({ name, onComplete }) {
   const [data, setData] = useState({ emotions:[], sleepHrs:null, soreness:null, motivation:null, urine:null, breakfast:"" });
@@ -393,7 +393,7 @@ function MorningSheet({ name, onComplete }) {
   const [error, setError] = useState("");
   const set = (k,v) => setData(d=>({...d,[k]:v}));
   const canSubmit = data.emotions.length>0 && data.sleepHrs!=null && data.soreness!=null && data.motivation && data.urine;
-
+ 
   const submit = async () => {
     setSaving(true); setError("");
     try {
@@ -402,7 +402,7 @@ function MorningSheet({ name, onComplete }) {
     } catch(e) { setError("Could not save. Check your connection."); console.error(e); }
     setSaving(false);
   };
-
+ 
   return (
     <div>
       <div style={{ textAlign:"center", marginBottom:28 }}>
@@ -426,7 +426,7 @@ function MorningSheet({ name, onComplete }) {
     </div>
   );
 }
-
+ 
 // ── Training Sheet ──────────────────────────────────────────────────────────
 function TrainingSheet({ name, onComplete }) {
   const [data, setData] = useState({ warmup:null, intent:null, focusRating:null, focusText:"", culture:null, drive:"" });
@@ -434,7 +434,7 @@ function TrainingSheet({ name, onComplete }) {
   const [error, setError] = useState("");
   const set = (k,v) => setData(d=>({...d,[k]:v}));
   const canSubmit = data.warmup!=null && data.intent && data.focusRating!=null && data.culture;
-
+ 
   const submit = async () => {
     setSaving(true); setError("");
     try {
@@ -443,7 +443,7 @@ function TrainingSheet({ name, onComplete }) {
     } catch(e) { setError("Could not save. Check your connection."); console.error(e); }
     setSaving(false);
   };
-
+ 
   return (
     <div>
       <div style={{ textAlign:"center", marginBottom:28 }}>
@@ -467,7 +467,7 @@ function TrainingSheet({ name, onComplete }) {
     </div>
   );
 }
-
+ 
 // ── Done Screen ─────────────────────────────────────────────────────────────
 function DoneScreen({ name, onReset, onHistory, onTraining, morningOnly }) {
   return (
@@ -498,18 +498,18 @@ function DoneScreen({ name, onReset, onHistory, onTraining, morningOnly }) {
     </div>
   );
 }
-
+ 
 // ── Player Flow ─────────────────────────────────────────────────────────────
 function PlayerView({ onBack }) {
   const [name, setName]       = useState("");
   const [nameSet, setNameSet] = useState(false);
   const [step, setStep]       = useState(0); // 0=morning, 1=morningDone, 2=training, 3=allDone, 4=history
   const reset = () => { setName(""); setNameSet(false); setStep(0); };
-
+ 
   if (step===4) return <PlayerHistory name={name} onBack={()=>setStep(step===3?3:1)}/>;
   if (step===3) return <DoneScreen name={name} onReset={reset} onHistory={()=>setStep(4)} morningOnly={false}/>;
   if (step===1) return <DoneScreen name={name} onReset={reset} onHistory={()=>setStep(4)} onTraining={()=>setStep(2)} morningOnly={true}/>;
-
+ 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
       <div style={{ padding:"24px 24px 20px", display:"flex", alignItems:"center", gap:12, borderBottom:"1px solid #1E252E" }}>
@@ -526,7 +526,7 @@ function PlayerView({ onBack }) {
           </button>
         )}
       </div>
-
+ 
       <div style={{ padding:"24px", maxWidth:480, margin:"0 auto" }}>
         {!nameSet ? (
           <div>
@@ -570,7 +570,7 @@ function PlayerView({ onBack }) {
     </div>
   );
 }
-
+ 
 // ── Coach Login ─────────────────────────────────────────────────────────────
 function CoachLogin({ onAuth }) {
   const [pw, setPw] = useState("");
@@ -592,7 +592,7 @@ function CoachLogin({ onAuth }) {
     </div>
   );
 }
-
+ 
 // ── Flag System ─────────────────────────────────────────────────────────────
 function FlagPanel({ entries }) {
   const flags = [];
@@ -604,9 +604,9 @@ function FlagPanel({ entries }) {
     if (e.urine === "Dark Yellow") f.push("Dehydrated");
     if (f.length > 0) flags.push({ name:e.name, flags:f });
   });
-
+ 
   if (flags.length === 0) return null;
-
+ 
   return (
     <div style={{ background:"#2A1515", border:"1px solid #E05C5C44", borderRadius:12, padding:"16px 18px", marginBottom:16 }}>
       <div style={{ fontSize:11, color:"#E05C5C", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>
@@ -625,7 +625,7 @@ function FlagPanel({ entries }) {
     </div>
   );
 }
-
+ 
 // ── Coach Dashboard ─────────────────────────────────────────────────────────
 function CoachDashboard({ onBack }) {
   const [authed, setAuthed]     = useState(false);
@@ -637,14 +637,14 @@ function CoachDashboard({ onBack }) {
   const [coachNote, setCoachNote] = useState({});
   const [savingNote, setSavingNote] = useState(null);
   const [viewingPlayer, setViewingPlayer] = useState(null);
-
+ 
   const dates = Array.from({length:7},(_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-i);
     return d.toISOString().slice(0,10);
   });
-
+ 
   useEffect(()=>{ if(authed) load(); },[authed, selDate, tab]);
-
+ 
   const load = async () => {
     setLoading(true);
     try {
@@ -664,7 +664,7 @@ function CoachDashboard({ onBack }) {
     } catch(e) { console.error(e); setEntries([]); }
     setLoading(false);
   };
-
+ 
   const saveNote = async (entryId, note) => {
     setSavingNote(entryId);
     try {
@@ -673,21 +673,21 @@ function CoachDashboard({ onBack }) {
     } catch(e) { console.error(e); }
     setSavingNote(null);
   };
-
+ 
   if (viewingPlayer) return <PlayerHistory name={viewingPlayer} onBack={()=>setViewingPlayer(null)}/>;
   if (!authed) return <CoachLogin onAuth={()=>setAuthed(true)}/>;
-
+ 
   const Badge = ({label, color}) => (
     <span style={{ padding:"3px 9px", borderRadius:12, background:color+"22", color, fontFamily:"monospace", fontSize:11, fontWeight:700 }}>{label}</span>
   );
-
+ 
   const Row = ({label, value, color}) => (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"10px 14px", background:"#0D1117", borderRadius:8, gap:12 }}>
       <span style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase", flexShrink:0 }}>{label}</span>
       <span style={{ fontSize:13, color:color||"#ccc", fontFamily:"Georgia,serif", textAlign:"right", lineHeight:1.4 }}>{value}</span>
     </div>
   );
-
+ 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
       <div style={{ padding:"24px 24px 0", display:"flex", alignItems:"center", gap:12 }}>
@@ -698,7 +698,7 @@ function CoachDashboard({ onBack }) {
         </div>
         <button onClick={()=>setAuthed(false)} style={{ marginLeft:"auto", background:"none", border:"none", color:"#444", cursor:"pointer", fontFamily:"monospace", fontSize:11 }}>Log out</button>
       </div>
-
+ 
       <div style={{ display:"flex", padding:"18px 24px 0", borderBottom:"1px solid #1E252E" }}>
         {["morning","training"].map(t=>(
           <button key={t} onClick={()=>{setTab(t);setExpanded(null);}}
@@ -708,7 +708,7 @@ function CoachDashboard({ onBack }) {
           </button>
         ))}
       </div>
-
+ 
       <div style={{ display:"flex", overflowX:"auto", padding:"12px 24px 0", borderBottom:"1px solid #1E252E" }}>
         {dates.map(d=>(
           <button key={d} onClick={()=>setSelDate(d)}
@@ -718,7 +718,7 @@ function CoachDashboard({ onBack }) {
           </button>
         ))}
       </div>
-
+ 
       <div style={{ padding:"20px 24px", maxWidth:620, margin:"0 auto" }}>
         {loading ? (
           <p style={{ color:"#555", fontFamily:"monospace", textAlign:"center", marginTop:48 }}>Loading...</p>
@@ -731,7 +731,7 @@ function CoachDashboard({ onBack }) {
           <>
             {/* Flag system */}
             {tab==="morning" && <FlagPanel entries={entries}/>}
-
+ 
             {/* Summary */}
             <div style={{ background:"#161B22", borderRadius:12, padding:"16px 20px", marginBottom:16, display:"flex", gap:20, flexWrap:"wrap", alignItems:"center" }}>
               <div>
@@ -773,7 +773,7 @@ function CoachDashboard({ onBack }) {
                 </div>
               </>}
             </div>
-
+ 
             {/* Player cards */}
             {entries.map(e => {
               const isOpen = expanded===e.id;
@@ -805,7 +805,7 @@ function CoachDashboard({ onBack }) {
                     </div>
                     <span style={{ color:"#555", fontSize:12 }}>{isOpen?"▲":"▼"}</span>
                   </div>
-
+ 
                   {isOpen && (
                     <div style={{ padding:"0 18px 18px", borderTop:"1px solid #1E252E" }}>
                       <div style={{ marginTop:14, display:"flex", flexDirection:"column", gap:8 }}>
@@ -826,7 +826,7 @@ function CoachDashboard({ onBack }) {
                           {e.drive && <Row label="Drive for tomorrow" value={`"${e.drive}"`}/>}
                         </>}
                       </div>
-
+ 
                       {/* Coach note */}
                       <div style={{ marginTop:14 }}>
                         <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Coach Note</div>
@@ -858,13 +858,13 @@ function CoachDashboard({ onBack }) {
     </div>
   );
 }
-
+ 
 // ── Home ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState("home");
   if (view==="player") return <PlayerView  onBack={()=>setView("home")}/>;
   if (view==="coach")  return <CoachDashboard onBack={()=>setView("home")}/>;
-
+ 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32, fontFamily:"Georgia,serif" }}>
       <div style={{ position:"fixed", inset:0, pointerEvents:"none", backgroundImage:"radial-gradient(circle at 15% 60%, #0a2518 0%, transparent 45%), radial-gradient(circle at 85% 20%, #0d1f2d 0%, transparent 45%)" }}/>
@@ -899,23 +899,3 @@ export default function App() {
     </div>
   );
 }
-Done
-That's the full code — select it all from import { useState at the top to the last } at the bottom, copy it, and paste it into GitHub. Commit and Vercel will redeploy in ~3 minutes! 🎾
-
-what part do I copy the output?
-
-07:18
-Copy everything that appears after the word stdout:
-
-Start copying from:
-
-import { useState, useEffect } from "react";
-All the way down to the very last:
-
-}
-It's a lot of text — the easiest way is to click at the very start of import, then scroll all the way to the bottom and Shift+click at the very end to select it all. Then Ctrl+C to copy.
-
-Then paste into GitHub! 🎾
-
-
-
