@@ -1,21 +1,20 @@
 import { useState, useEffect } from "react";
 import { db } from "./firebase";
 import {
-  collection, addDoc, query, where, getDocs, orderBy
+  collection, addDoc, query, where, getDocs, orderBy, doc, setDoc, getDoc
 } from "firebase/firestore";
 
-// ── Config ────────────────────────────────────────────────────────────────────
-// Change this to whatever password you want for the coach dashboard
+// ── Config ─────────────────────────────────────────────────────────────────
 const COACH_PASSWORD = "teambath2024";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Constants ───────────────────────────────────────────────────────────────
 const EMOTIONS   = ["😊 Happy","😢 Sad","😴 Exhausted","🤩 Excited","😰 Stressed","😌 Calm"];
 const URINE      = [
   { label:"Dark Yellow", color:"#C8930A", hint:"Drink water now!" },
   { label:"Pale",        color:"#E8C840", hint:"Nearly there" },
   { label:"Light",       color:"#F0EDA0", hint:"Well hydrated ✓" },
 ];
-const RAG        = [
+const RAG = [
   { label:"Red",   color:"#E05C5C", bg:"#2A1515" },
   { label:"Amber", color:"#F5A623", bg:"#2A1E0A" },
   { label:"Green", color:"#4EB87A", bg:"#0E2A1A" },
@@ -24,24 +23,26 @@ const INTENT_OPTS = ["All the time","Most of the time","A little","None"];
 const ragColor    = v => RAG.find(r => r.label === v)?.color ?? "#555";
 const today       = () => new Date().toISOString().slice(0,10);
 const fmt         = d => new Date(d+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+const fmtFull     = d => new Date(d+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
 
-// ── Shared UI ─────────────────────────────────────────────────────────────────
+// ── Shared UI ───────────────────────────────────────────────────────────────
 const Label = ({ children }) => (
   <div style={{ fontSize:11, letterSpacing:"0.09em", textTransform:"uppercase",
     color:"#666", fontFamily:"monospace", marginBottom:10 }}>{children}</div>
 );
 
 function SliderField({ label, value, onChange, min=1, max=10, unit="", invert=false }) {
-  const pct   = ((value ?? min) - min) / (max - min);
+  const pct = ((value ?? min) - min) / (max - min);
   const color = invert
-  ? (pct >= 0.66 ? "#E05C5C" : pct >= 0.33 ? "#F5A623" : "#4EB87A")
-  : (pct >= 0.66 ? "#4EB87A" : pct >= 0.33 ? "#F5A623" : "#E05C5C");
+    ? (pct >= 0.66 ? "#E05C5C" : pct >= 0.33 ? "#F5A623" : "#4EB87A")
+    : (pct >= 0.66 ? "#4EB87A" : pct >= 0.33 ? "#F5A623" : "#E05C5C");
   return (
     <div style={{ marginBottom:24 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
         <Label>{label}</Label>
-        <span style={{ fontSize:22, fontWeight:700, color, fontFamily:"Georgia,serif",
-          transition:"color 0.3s" }}>{value ?? "–"}{unit}</span>
+        <span style={{ fontSize:22, fontWeight:700, color, fontFamily:"Georgia,serif", transition:"color 0.3s" }}>
+          {value ?? "–"}{unit}
+        </span>
       </div>
       <div style={{ position:"relative", height:6 }}>
         <div style={{ position:"absolute", inset:0, borderRadius:3, background:"#252D38" }}/>
@@ -51,8 +52,7 @@ function SliderField({ label, value, onChange, min=1, max=10, unit="", invert=fa
         )}
         <input type="range" min={min} max={max} step={1} value={value ?? min}
           onChange={e => onChange(parseInt(e.target.value))}
-          style={{ position:"absolute", inset:0, width:"100%", margin:0,
-            opacity:0, cursor:"pointer", height:"100%" }}/>
+          style={{ position:"absolute", inset:0, width:"100%", margin:0, opacity:0, cursor:"pointer", height:"100%" }}/>
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
         <span style={{ fontSize:10, color:"#444", fontFamily:"monospace" }}>{min}</span>
@@ -73,8 +73,7 @@ function RAGField({ label, value, onChange }) {
               border:`2px solid ${value===r.label ? r.color : "#252D38"}`,
               borderRadius:10, background: value===r.label ? r.bg : "#161B22",
               color: value===r.label ? r.color : "#555",
-              cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700,
-              transition:"all 0.2s" }}>
+              cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700, transition:"all 0.2s" }}>
             {r.label}
           </button>
         ))}
@@ -97,8 +96,7 @@ function MultiSelect({ label, options, value=[], onChange }) {
                 border:`2px solid ${on ? "#4EB87A" : "#252D38"}`,
                 background: on ? "#0E2A1A" : "#161B22",
                 color: on ? "#4EB87A" : "#555",
-                cursor:"pointer", fontFamily:"Georgia,serif", fontSize:14,
-                transition:"all 0.2s" }}>
+                cursor:"pointer", fontFamily:"Georgia,serif", fontSize:14, transition:"all 0.2s" }}>
               {opt}
             </button>
           );
@@ -119,8 +117,7 @@ function ButtonGroup({ label, options, value, onChange }) {
               border:`2px solid ${value===opt ? "#4EB87A" : "#252D38"}`,
               borderRadius:10, background: value===opt ? "#0E2A1A" : "#161B22",
               color: value===opt ? "#4EB87A" : "#777",
-              cursor:"pointer", fontFamily:"Georgia,serif", fontSize:14,
-              transition:"all 0.2s" }}>
+              cursor:"pointer", fontFamily:"Georgia,serif", fontSize:14, transition:"all 0.2s" }}>
             {value===opt ? "● " : "○ "}{opt}
           </button>
         ))}
@@ -190,28 +187,219 @@ function ProgressDots({ step }) {
   );
 }
 
-// ── Morning Sheet ─────────────────────────────────────────────────────────────
-function MorningSheet({ name, onComplete }) {
-  const [data, setData]   = useState({ emotions:[], sleepHrs:null, soreness:null,
-    motivation:null, urine:null, breakfast:"" });
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState("");
-  const set = (k,v) => setData(d=>({...d,[k]:v}));
+// ── Mini Sparkline ──────────────────────────────────────────────────────────
+function Sparkline({ data, max, invert, color }) {
+  if (!data || data.length < 2) return null;
+  const w = 80, h = 28;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const pct = v / max;
+    const y = invert ? pct * (h-4) + 2 : (1-pct) * (h-4) + 2;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} style={{ display:"block" }}>
+      <polyline points={points} fill="none" stroke={color||"#4EB87A"} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
 
-  const canSubmit = data.emotions.length>0 && data.sleepHrs!=null &&
-    data.soreness!=null && data.motivation && data.urine;
+// ── Player History Dashboard ────────────────────────────────────────────────
+function PlayerHistory({ name, onBack }) {
+  const [morningData, setMorningData] = useState([]);
+  const [trainingData, setTrainingData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("overview");
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const mq = query(collection(db,"checkins"), where("name","==",name), where("sheet","==","morning"), orderBy("date","desc"));
+      const tq = query(collection(db,"checkins"), where("name","==",name), where("sheet","==","training"), orderBy("date","desc"));
+      const [ms, ts] = await Promise.all([getDocs(mq), getDocs(tq)]);
+      setMorningData(ms.docs.map(d=>({id:d.id,...d.data()})));
+      setTrainingData(ts.docs.map(d=>({id:d.id,...d.data()})));
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const avgOf = (arr, key) => {
+    const vals = arr.map(e=>e[key]).filter(v=>v!=null);
+    return vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : "–";
+  };
+
+  const last7 = morningData.slice(0,7).reverse();
+  const sleepTrend = last7.map(e=>e.sleepHrs).filter(v=>v!=null);
+  const sorenessTrend = last7.map(e=>e.soreness).filter(v=>v!=null);
+  const moodTrend = last7.map(e=>e.mood).filter(v=>v!=null);
+
+  const recentDates = [...new Set([...morningData, ...trainingData].map(e=>e.date))].sort().reverse().slice(0,14);
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
+      <div style={{ padding:"24px 24px 0", display:"flex", alignItems:"center", gap:12, borderBottom:"1px solid #1E252E", paddingBottom:20 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:20, padding:0 }}>←</button>
+        <div>
+          <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase" }}>My Dashboard</div>
+          <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, letterSpacing:"-0.02em" }}>{name}</h2>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", borderBottom:"1px solid #1E252E" }}>
+        {["overview","history"].map(t => (
+          <button key={t} onClick={()=>setTab(t)}
+            style={{ background:"none", border:"none", cursor:"pointer", padding:"12px 20px",
+              fontFamily:"monospace", fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase",
+              color: tab===t?"#4EB87A":"#555",
+              borderBottom: tab===t?"2px solid #4EB87A":"2px solid transparent" }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p style={{ color:"#555", fontFamily:"monospace", textAlign:"center", marginTop:48 }}>Loading...</p>
+      ) : (
+        <div style={{ padding:"20px 24px", maxWidth:520, margin:"0 auto" }}>
+
+          {tab==="overview" && (
+            <>
+              {/* Stats */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:20 }}>
+                {[
+                  { label:"Check-ins", value: morningData.length, unit:"" },
+                  { label:"Avg Sleep", value: avgOf(morningData,"sleepHrs"), unit:"h" },
+                  { label:"Avg Soreness", value: avgOf(morningData,"soreness"), unit:"/5" },
+                ].map(s => (
+                  <div key={s.label} style={{ background:"#161B22", borderRadius:10, padding:"14px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:6 }}>{s.label}</div>
+                    <div style={{ fontSize:22, fontWeight:700, color:"#4EB87A", fontFamily:"Georgia,serif" }}>{s.value}{s.unit}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Trends */}
+              <div style={{ background:"#161B22", borderRadius:12, padding:"18px", marginBottom:16 }}>
+                <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:16 }}>Last 7 Days</div>
+                {[
+                  { label:"Sleep Hours", data:sleepTrend, max:12, color:"#9B8EC4" },
+                  { label:"Soreness", data:sorenessTrend, max:5, color:"#E05C5C", invert:true },
+                  { label:"Morning Energy", data:moodTrend, max:10, color:"#4EB87A" },
+                ].map(t => (
+                  <div key={t.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                    <span style={{ fontSize:12, color:"#aaa", fontFamily:"monospace", width:120 }}>{t.label}</span>
+                    <Sparkline data={t.data} max={t.max} invert={t.invert} color={t.color}/>
+                    <span style={{ fontSize:16, fontWeight:700, color:t.color, fontFamily:"Georgia,serif", width:40, textAlign:"right" }}>
+                      {t.data.length ? t.data[t.data.length-1] : "–"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Motivation streak */}
+              <div style={{ background:"#161B22", borderRadius:12, padding:"18px", marginBottom:16 }}>
+                <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Motivation — Last 7 Days</div>
+                <div style={{ display:"flex", gap:6 }}>
+                  {morningData.slice(0,7).reverse().map((e,i) => {
+                    const c = ragColor(e.motivation);
+                    return (
+                      <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                        <div style={{ width:"100%", height:32, borderRadius:6, background:c+"33", border:`1px solid ${c}` }}/>
+                        <span style={{ fontSize:9, color:"#444", fontFamily:"monospace" }}>{fmt(e.date).split(" ")[0]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Training */}
+              {trainingData.length > 0 && (
+                <div style={{ background:"#161B22", borderRadius:12, padding:"18px" }}>
+                  <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Training Stats</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    {[
+                      { label:"Avg Warm-up", value: avgOf(trainingData,"warmup"), unit:"/5" },
+                      { label:"Avg Focus", value: avgOf(trainingData,"focusRating"), unit:"/5" },
+                    ].map(s => (
+                      <div key={s.label} style={{ background:"#0D1117", borderRadius:8, padding:"12px", textAlign:"center" }}>
+                        <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:4 }}>{s.label}</div>
+                        <div style={{ fontSize:20, fontWeight:700, color:"#5B9BD5", fontFamily:"Georgia,serif" }}>{s.value}{s.unit}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {tab==="history" && (
+            <>
+              <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:16 }}>
+                Full Check-in History
+              </div>
+              {recentDates.length === 0 && (
+                <p style={{ color:"#555", fontFamily:"monospace", fontSize:13 }}>No check-ins yet.</p>
+              )}
+              {recentDates.map(date => {
+                const m = morningData.find(e=>e.date===date);
+                const t = trainingData.find(e=>e.date===date);
+                return (
+                  <div key={date} style={{ background:"#161B22", borderRadius:12, padding:"16px 18px", marginBottom:10 }}>
+                    <div style={{ fontSize:11, color:"#4EB87A", fontFamily:"monospace", letterSpacing:"0.08em", marginBottom:10 }}>
+                      {fmtFull(date)}
+                    </div>
+                    {m && (
+                      <div style={{ marginBottom:t?10:0 }}>
+                        <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>🌅 Wake Up</div>
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                          {m.sleepHrs && <span style={{ fontSize:11, background:"#9B8EC422", color:"#9B8EC4", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>{m.sleepHrs}h sleep</span>}
+                          {m.soreness && <span style={{ fontSize:11, background:"#E05C5C22", color:"#E05C5C", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>soreness {m.soreness}/5</span>}
+                          {m.motivation && <span style={{ fontSize:11, background:ragColor(m.motivation)+"22", color:ragColor(m.motivation), padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>{m.motivation}</span>}
+                          {m.urine && <span style={{ fontSize:11, background:"#252D38", color:"#aaa", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>{m.urine}</span>}
+                        </div>
+                        {m.emotions?.length > 0 && <div style={{ fontSize:12, color:"#555", marginTop:6, fontFamily:"monospace" }}>{m.emotions.join(" · ")}</div>}
+                      </div>
+                    )}
+                    {t && (
+                      <div>
+                        <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>🎾 Training</div>
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                          {t.warmup && <span style={{ fontSize:11, background:"#5B9BD522", color:"#5B9BD5", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>warm-up {t.warmup}/5</span>}
+                          {t.focusRating && <span style={{ fontSize:11, background:"#9B8EC422", color:"#9B8EC4", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>focus {t.focusRating}/5</span>}
+                          {t.culture && <span style={{ fontSize:11, background:ragColor(t.culture)+"22", color:ragColor(t.culture), padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>{t.culture}</span>}
+                        </div>
+                        {t.focusText && <div style={{ fontSize:12, color:"#555", marginTop:6, fontFamily:"monospace" }}>"{t.focusText}"</div>}
+                        {t.drive && <div style={{ fontSize:12, color:"#555", marginTop:4, fontFamily:"monospace" }}>Drive: "{t.drive}"</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Morning Sheet ───────────────────────────────────────────────────────────
+function MorningSheet({ name, onComplete }) {
+  const [data, setData] = useState({ emotions:[], sleepHrs:null, soreness:null, motivation:null, urine:null, breakfast:"" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k,v) => setData(d=>({...d,[k]:v}));
+  const canSubmit = data.emotions.length>0 && data.sleepHrs!=null && data.soreness!=null && data.motivation && data.urine;
 
   const submit = async () => {
     setSaving(true); setError("");
     try {
-      await addDoc(collection(db,"checkins"), {
-        name, date:today(), sheet:"morning", ...data, ts: Date.now()
-      });
+      await addDoc(collection(db,"checkins"), { name, date:today(), sheet:"morning", ...data, ts:Date.now() });
       onComplete();
-    } catch(e) {
-      setError("Could not save. Check your Firebase config.");
-      console.error(e);
-    }
+    } catch(e) { setError("Could not save. Check your connection."); console.error(e); }
     setSaving(false);
   };
 
@@ -219,60 +407,40 @@ function MorningSheet({ name, onComplete }) {
     <div>
       <div style={{ textAlign:"center", marginBottom:28 }}>
         <div style={{ fontSize:36, marginBottom:6 }}>🌅</div>
-        <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, color:"#fff",
-          letterSpacing:"-0.02em" }}>Wake Up Check-in</h2>
-        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, margin:"6px 0 0" }}>
-          Good morning, {name}
-        </p>
+        <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, color:"#fff", letterSpacing:"-0.02em" }}>Wake Up Check-in</h2>
+        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, margin:"6px 0 0" }}>Good morning, {name}</p>
       </div>
-
-      <MultiSelect label="How are your emotions?" options={EMOTIONS}
-        value={data.emotions} onChange={v=>set("emotions",v)}/>
-      <SliderField label="Hours of sleep" value={data.sleepHrs}
-        onChange={v=>set("sleepHrs",v)} min={1} max={12} unit="h"/>
-      <SliderField label="Muscle soreness" value={data.soreness}
-        onChange={v=>set("soreness",v)} min={1} max={5} invert/>
+      <MultiSelect label="How are your emotions?" options={EMOTIONS} value={data.emotions} onChange={v=>set("emotions",v)}/>
+      <SliderField label="Hours of sleep" value={data.sleepHrs} onChange={v=>set("sleepHrs",v)} min={1} max={12} unit="h"/>
+      <SliderField label="Muscle soreness" value={data.soreness} onChange={v=>set("soreness",v)} min={1} max={5} invert/>
       <RAGField label="Motivation" value={data.motivation} onChange={v=>set("motivation",v)}/>
       <UrineField value={data.urine} onChange={v=>set("urine",v)}/>
-      <TextField label="What did you have for breakfast?" value={data.breakfast}
-        onChange={v=>set("breakfast",v)} placeholder="e.g. porridge, eggs on toast..."/>
-
-      {error && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12,
-        marginBottom:12 }}>{error}</p>}
-
+      <TextField label="What did you have for breakfast?" value={data.breakfast} onChange={v=>set("breakfast",v)} placeholder="e.g. porridge, eggs on toast..."/>
+      {error && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12, marginBottom:12 }}>{error}</p>}
       <button onClick={submit} disabled={!canSubmit||saving}
-        style={{ width:"100%", background: canSubmit?"#4EB87A":"#1E252E",
-          border:"none", borderRadius:12, padding:"16px",
-          color: canSubmit?"#fff":"#444", fontSize:16,
-          cursor: canSubmit?"pointer":"not-allowed", fontFamily:"Georgia,serif",
-          letterSpacing:"-0.01em", transition:"all 0.2s" }}>
+        style={{ width:"100%", background: canSubmit?"#4EB87A":"#1E252E", border:"none", borderRadius:12, padding:"16px",
+          color: canSubmit?"#fff":"#444", fontSize:16, cursor: canSubmit?"pointer":"not-allowed",
+          fontFamily:"Georgia,serif", letterSpacing:"-0.01em", transition:"all 0.2s" }}>
         {saving ? "Saving..." : canSubmit ? "Continue to Training Sheet →" : "Complete required fields"}
       </button>
     </div>
   );
 }
 
-// ── Training Sheet ────────────────────────────────────────────────────────────
+// ── Training Sheet ──────────────────────────────────────────────────────────
 function TrainingSheet({ name, onComplete }) {
-  const [data, setData]   = useState({ warmup:null, intent:null,
-    focusRating:null, focusText:"", culture:null, drive:"" });
+  const [data, setData] = useState({ warmup:null, intent:null, focusRating:null, focusText:"", culture:null, drive:"" });
   const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState("");
+  const [error, setError] = useState("");
   const set = (k,v) => setData(d=>({...d,[k]:v}));
-
   const canSubmit = data.warmup!=null && data.intent && data.focusRating!=null && data.culture;
 
   const submit = async () => {
     setSaving(true); setError("");
     try {
-      await addDoc(collection(db,"checkins"), {
-        name, date:today(), sheet:"training", ...data, ts: Date.now()
-      });
+      await addDoc(collection(db,"checkins"), { name, date:today(), sheet:"training", ...data, ts:Date.now() });
       onComplete();
-    } catch(e) {
-      setError("Could not save. Check your Firebase config.");
-      console.error(e);
-    }
+    } catch(e) { setError("Could not save. Check your connection."); console.error(e); }
     setSaving(false);
   };
 
@@ -280,87 +448,83 @@ function TrainingSheet({ name, onComplete }) {
     <div>
       <div style={{ textAlign:"center", marginBottom:28 }}>
         <div style={{ fontSize:36, marginBottom:6 }}>🎾</div>
-        <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, color:"#fff",
-          letterSpacing:"-0.02em" }}>Training Check-in</h2>
-        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, margin:"6px 0 0" }}>
-          Session reflection, {name}
-        </p>
+        <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, color:"#fff", letterSpacing:"-0.02em" }}>Training Check-in</h2>
+        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, margin:"6px 0 0" }}>Session reflection, {name}</p>
       </div>
-
-      <SliderField label="Warm-up rating" value={data.warmup}
-        onChange={v=>set("warmup",v)} min={1} max={5}/>
-      <ButtonGroup label="Did you train with intent?" options={INTENT_OPTS}
-        value={data.intent} onChange={v=>set("intent",v)}/>
-      <SliderField label="Mental engagement (1–5)" value={data.focusRating}
-        onChange={v=>set("focusRating",v)} min={1} max={5}/>
-      <TextField label="What was your focus for the session?" value={data.focusText}
-        onChange={v=>set("focusText",v)} placeholder="e.g. first serve consistency, footwork..."/>
-      <RAGField label="Did you show Teambath culture?" value={data.culture}
-        onChange={v=>set("culture",v)}/>
-      <TextField label="What's your drive for tomorrow?" value={data.drive}
-        onChange={v=>set("drive",v)} placeholder="e.g. I want to improve my backhand..."/>
-
-      {error && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12,
-        marginBottom:12 }}>{error}</p>}
-
+      <SliderField label="Warm-up rating" value={data.warmup} onChange={v=>set("warmup",v)} min={1} max={5}/>
+      <ButtonGroup label="Did you train with intent?" options={INTENT_OPTS} value={data.intent} onChange={v=>set("intent",v)}/>
+      <SliderField label="Mental engagement (1–5)" value={data.focusRating} onChange={v=>set("focusRating",v)} min={1} max={5}/>
+      <TextField label="What was your focus for the session?" value={data.focusText} onChange={v=>set("focusText",v)} placeholder="e.g. first serve consistency, footwork..."/>
+      <RAGField label="Did you show Teambath culture?" value={data.culture} onChange={v=>set("culture",v)}/>
+      <TextField label="What's your drive for tomorrow?" value={data.drive} onChange={v=>set("drive",v)} placeholder="e.g. I want to improve my backhand..."/>
+      {error && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12, marginBottom:12 }}>{error}</p>}
       <button onClick={submit} disabled={!canSubmit||saving}
-        style={{ width:"100%", background: canSubmit?"#4EB87A":"#1E252E",
-          border:"none", borderRadius:12, padding:"16px",
-          color: canSubmit?"#fff":"#444", fontSize:16,
-          cursor: canSubmit?"pointer":"not-allowed", fontFamily:"Georgia,serif",
-          letterSpacing:"-0.01em", transition:"all 0.2s" }}>
+        style={{ width:"100%", background: canSubmit?"#4EB87A":"#1E252E", border:"none", borderRadius:12, padding:"16px",
+          color: canSubmit?"#fff":"#444", fontSize:16, cursor: canSubmit?"pointer":"not-allowed",
+          fontFamily:"Georgia,serif", letterSpacing:"-0.01em", transition:"all 0.2s" }}>
         {saving ? "Saving..." : canSubmit ? "Submit Session ✓" : "Complete required fields"}
       </button>
     </div>
   );
 }
 
-// ── Done Screen ───────────────────────────────────────────────────────────────
-function DoneScreen({ name, onReset }) {
+// ── Done Screen ─────────────────────────────────────────────────────────────
+function DoneScreen({ name, onReset, onHistory, onTraining, morningOnly }) {
   return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center", padding:32, gap:16 }}>
-      <div style={{ fontSize:56 }}>🏆</div>
-      <h2 style={{ color:"#fff", fontFamily:"Georgia,serif", fontWeight:"normal",
-        fontSize:26, margin:0, textAlign:"center" }}>All done, {name}!</h2>
-      <p style={{ color:"#555", fontFamily:"monospace", fontSize:13,
-        textAlign:"center", maxWidth:260, lineHeight:1.6 }}>
-        Both check-ins submitted. Your coach can see your data. Have a great session!
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32, gap:16 }}>
+      <div style={{ fontSize:56 }}>{morningOnly ? "🌅" : "🏆"}</div>
+      <h2 style={{ color:"#fff", fontFamily:"Georgia,serif", fontWeight:"normal", fontSize:26, margin:0, textAlign:"center" }}>
+        {morningOnly ? `Morning done, ${name}!` : `All done, ${name}!`}
+      </h2>
+      <p style={{ color:"#555", fontFamily:"monospace", fontSize:13, textAlign:"center", maxWidth:280, lineHeight:1.6 }}>
+        {morningOnly
+          ? "Wake up check-in submitted. Come back after training to complete your session check-in."
+          : "Both check-ins submitted. Your coach can see your data. Have a great session!"}
       </p>
+      {morningOnly && (
+        <button onClick={onTraining}
+          style={{ marginTop:8, background:"#4EB87A", border:"none", color:"#fff", borderRadius:10, padding:"12px 28px", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>
+          Do Training Check-in Now
+        </button>
+      )}
+      <button onClick={onHistory}
+        style={{ background: morningOnly ? "none" : "#4EB87A", border: morningOnly ? "1px solid #252D38" : "none", color: morningOnly ? "#aaa" : "#fff", borderRadius:10, padding:"12px 28px", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>
+        View My Dashboard
+      </button>
       <button onClick={onReset}
-        style={{ marginTop:8, background:"none", border:"1px solid #252D38",
-          color:"#555", borderRadius:8, padding:"10px 24px", cursor:"pointer",
-          fontFamily:"monospace", fontSize:13 }}>
+        style={{ background:"none", border:"1px solid #252D38", color:"#555", borderRadius:8, padding:"10px 24px", cursor:"pointer", fontFamily:"monospace", fontSize:13 }}>
         New check-in
       </button>
     </div>
   );
 }
 
-// ── Player View ───────────────────────────────────────────────────────────────
+// ── Player Flow ─────────────────────────────────────────────────────────────
 function PlayerView({ onBack }) {
   const [name, setName]       = useState("");
   const [nameSet, setNameSet] = useState(false);
-  const [step, setStep]       = useState(0);
+  const [step, setStep]       = useState(0); // 0=morning, 1=morningDone, 2=training, 3=allDone, 4=history
   const reset = () => { setName(""); setNameSet(false); setStep(0); };
 
-  if (step===2) return <DoneScreen name={name} onReset={reset}/>;
+  if (step===4) return <PlayerHistory name={name} onBack={()=>setStep(step===3?3:1)}/>;
+  if (step===3) return <DoneScreen name={name} onReset={reset} onHistory={()=>setStep(4)} morningOnly={false}/>;
+  if (step===1) return <DoneScreen name={name} onReset={reset} onHistory={()=>setStep(4)} onTraining={()=>setStep(2)} morningOnly={true}/>;
 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
-      <div style={{ padding:"24px 24px 20px", display:"flex", alignItems:"center", gap:12,
-        borderBottom:"1px solid #1E252E" }}>
-        <button onClick={onBack} style={{ background:"none", border:"none", color:"#555",
-          cursor:"pointer", fontSize:20, padding:0, lineHeight:1 }}>←</button>
+      <div style={{ padding:"24px 24px 20px", display:"flex", alignItems:"center", gap:12, borderBottom:"1px solid #1E252E" }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:20, padding:0, lineHeight:1 }}>←</button>
         <div>
-          <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-            letterSpacing:"0.1em", textTransform:"uppercase" }}>
+          <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase" }}>
             {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}
           </div>
-          <h2 style={{ margin:0, fontWeight:"normal", fontSize:20, letterSpacing:"-0.02em" }}>
-            Player Check-in
-          </h2>
+          <h2 style={{ margin:0, fontWeight:"normal", fontSize:20, letterSpacing:"-0.02em" }}>Player Check-in</h2>
         </div>
+        {nameSet && (
+          <button onClick={()=>setStep(4)} style={{ marginLeft:"auto", background:"none", border:"1px solid #252D38", color:"#4EB87A", borderRadius:8, padding:"6px 12px", cursor:"pointer", fontFamily:"monospace", fontSize:11 }}>
+            My Dashboard
+          </button>
+        )}
       </div>
 
       <div style={{ padding:"24px", maxWidth:480, margin:"0 auto" }}>
@@ -371,20 +535,35 @@ function PlayerView({ onBack }) {
               <input value={name} onChange={e=>setName(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&name.trim()&&setNameSet(true)}
                 placeholder="First and last name..."
-                style={{ flex:1, background:"#161B22", border:"1px solid #252D38",
-                  borderRadius:10, padding:"14px", color:"#fff", fontSize:15,
-                  fontFamily:"Georgia,serif", outline:"none" }}/>
+                style={{ flex:1, background:"#161B22", border:"1px solid #252D38", borderRadius:10, padding:"14px", color:"#fff", fontSize:15, fontFamily:"Georgia,serif", outline:"none" }}/>
               <button onClick={()=>name.trim()&&setNameSet(true)}
-                style={{ background:"#4EB87A", border:"none", borderRadius:10,
-                  padding:"14px 20px", color:"#fff", cursor:"pointer",
-                  fontFamily:"monospace", fontSize:13, fontWeight:700 }}>Go</button>
+                style={{ background:"#4EB87A", border:"none", borderRadius:10, padding:"14px 20px", color:"#fff", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>Go</button>
             </div>
           </div>
         ) : (
           <>
-            <ProgressDots step={step}/>
-            {step===0 && <MorningSheet name={name} onComplete={()=>setStep(1)}/>}
-            {step===1 && <TrainingSheet name={name} onComplete={()=>setStep(2)}/>}
+            {step===0 && (
+              <>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:28 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:8, height:8, borderRadius:"50%", background:"#4EB87A" }}/>
+                    <span style={{ fontSize:10, fontFamily:"monospace", letterSpacing:"0.06em", color:"#4EB87A", textTransform:"uppercase" }}>Wake Up</span>
+                  </div>
+                </div>
+                <MorningSheet name={name} onComplete={()=>setStep(1)}/>
+              </>
+            )}
+            {step===2 && (
+              <>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:28 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:8, height:8, borderRadius:"50%", background:"#4EB87A" }}/>
+                    <span style={{ fontSize:10, fontFamily:"monospace", letterSpacing:"0.06em", color:"#4EB87A", textTransform:"uppercase" }}>Training</span>
+                  </div>
+                </div>
+                <TrainingSheet name={name} onComplete={()=>setStep(3)}/>
+              </>
+            )}
           </>
         )}
       </div>
@@ -392,47 +571,72 @@ function PlayerView({ onBack }) {
   );
 }
 
-// ── Coach Login ───────────────────────────────────────────────────────────────
+// ── Coach Login ─────────────────────────────────────────────────────────────
 function CoachLogin({ onAuth }) {
-  const [pw, setPw]     = useState("");
-  const [err, setErr]   = useState(false);
-  const attempt = () => {
-    if (pw === COACH_PASSWORD) { onAuth(); setErr(false); }
-    else { setErr(true); setPw(""); }
-  };
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState(false);
+  const attempt = () => { if (pw===COACH_PASSWORD) { onAuth(); setErr(false); } else { setErr(true); setPw(""); } };
   return (
-    <div style={{ minHeight:"100vh", background:"#0D1117", display:"flex",
-      flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32 }}>
+    <div style={{ minHeight:"100vh", background:"#0D1117", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32 }}>
       <div style={{ fontSize:40, marginBottom:16 }}>🔒</div>
-      <h2 style={{ color:"#fff", fontFamily:"Georgia,serif", fontWeight:"normal",
-        fontSize:22, marginBottom:24 }}>Coach Access</h2>
+      <h2 style={{ color:"#fff", fontFamily:"Georgia,serif", fontWeight:"normal", fontSize:22, marginBottom:24 }}>Coach Access</h2>
       <div style={{ display:"flex", gap:10, width:"100%", maxWidth:320 }}>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
           onKeyDown={e=>e.key==="Enter"&&attempt()}
           placeholder="Password..."
-          style={{ flex:1, background:"#161B22",
-            border:`1px solid ${err?"#E05C5C":"#252D38"}`,
-            borderRadius:10, padding:"14px", color:"#fff", fontSize:15,
-            fontFamily:"Georgia,serif", outline:"none" }}/>
+          style={{ flex:1, background:"#161B22", border:`1px solid ${err?"#E05C5C":"#252D38"}`, borderRadius:10, padding:"14px", color:"#fff", fontSize:15, fontFamily:"Georgia,serif", outline:"none" }}/>
         <button onClick={attempt}
-          style={{ background:"#4EB87A", border:"none", borderRadius:10,
-            padding:"14px 20px", color:"#fff", cursor:"pointer",
-            fontFamily:"monospace", fontSize:13, fontWeight:700 }}>Go</button>
+          style={{ background:"#4EB87A", border:"none", borderRadius:10, padding:"14px 20px", color:"#fff", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>Go</button>
       </div>
-      {err && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12,
-        marginTop:10 }}>Incorrect password</p>}
+      {err && <p style={{ color:"#E05C5C", fontFamily:"monospace", fontSize:12, marginTop:10 }}>Incorrect password</p>}
     </div>
   );
 }
 
-// ── Coach Dashboard ───────────────────────────────────────────────────────────
+// ── Flag System ─────────────────────────────────────────────────────────────
+function FlagPanel({ entries }) {
+  const flags = [];
+  entries.forEach(e => {
+    const f = [];
+    if (e.sleepHrs != null && e.sleepHrs <= 5) f.push("Low sleep ("+e.sleepHrs+"h)");
+    if (e.soreness != null && e.soreness >= 4) f.push("High soreness ("+e.soreness+"/5)");
+    if (e.motivation === "Red") f.push("Low motivation");
+    if (e.urine === "Dark Yellow") f.push("Dehydrated");
+    if (f.length > 0) flags.push({ name:e.name, flags:f });
+  });
+
+  if (flags.length === 0) return null;
+
+  return (
+    <div style={{ background:"#2A1515", border:"1px solid #E05C5C44", borderRadius:12, padding:"16px 18px", marginBottom:16 }}>
+      <div style={{ fontSize:11, color:"#E05C5C", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>
+        ⚠️ Fatigue Flags — {flags.length} player{flags.length>1?"s":""} flagged
+      </div>
+      {flags.map(f => (
+        <div key={f.name} style={{ marginBottom:10 }}>
+          <div style={{ fontSize:14, color:"#fff", fontFamily:"Georgia,serif", marginBottom:4 }}>{f.name}</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {f.flags.map(fl => (
+              <span key={fl} style={{ fontSize:11, background:"#E05C5C22", color:"#E05C5C", padding:"3px 8px", borderRadius:8, fontFamily:"monospace" }}>{fl}</span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Coach Dashboard ─────────────────────────────────────────────────────────
 function CoachDashboard({ onBack }) {
-  const [authed, setAuthed] = useState(false);
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selDate, setSelDate] = useState(today());
-  const [tab, setTab]         = useState("morning");
+  const [authed, setAuthed]     = useState(false);
+  const [entries, setEntries]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [selDate, setSelDate]   = useState(today());
+  const [tab, setTab]           = useState("morning");
   const [expanded, setExpanded] = useState(null);
+  const [coachNote, setCoachNote] = useState({});
+  const [savingNote, setSavingNote] = useState(null);
+  const [viewingPlayer, setViewingPlayer] = useState(null);
 
   const dates = Array.from({length:7},(_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-i);
@@ -444,75 +648,72 @@ function CoachDashboard({ onBack }) {
   const load = async () => {
     setLoading(true);
     try {
-      const q = query(
-        collection(db,"checkins"),
-        where("date","==",selDate),
-        where("sheet","==",tab),
-        orderBy("name")
-      );
+      const q = query(collection(db,"checkins"), where("date","==",selDate), where("sheet","==",tab), orderBy("name"));
       const snap = await getDocs(q);
-      setEntries(snap.docs.map(d=>({id:d.id,...d.data()})));
+      const rows = snap.docs.map(d=>({id:d.id,...d.data()}));
+      setEntries(rows);
+      // Load coach notes
+      const notes = {};
+      await Promise.all(rows.map(async r => {
+        try {
+          const nd = await getDoc(doc(db,"coachnotes",`${r.id}`));
+          if (nd.exists()) notes[r.id] = nd.data().note || "";
+        } catch {}
+      }));
+      setCoachNote(notes);
     } catch(e) { console.error(e); setEntries([]); }
     setLoading(false);
   };
 
+  const saveNote = async (entryId, note) => {
+    setSavingNote(entryId);
+    try {
+      await setDoc(doc(db,"coachnotes",entryId), { note, ts:Date.now() });
+      setCoachNote(prev=>({...prev,[entryId]:note}));
+    } catch(e) { console.error(e); }
+    setSavingNote(null);
+  };
+
+  if (viewingPlayer) return <PlayerHistory name={viewingPlayer} onBack={()=>setViewingPlayer(null)}/>;
   if (!authed) return <CoachLogin onAuth={()=>setAuthed(true)}/>;
 
   const Badge = ({label, color}) => (
-    <span style={{ padding:"3px 9px", borderRadius:12, background:color+"22",
-      color, fontFamily:"monospace", fontSize:11, fontWeight:700 }}>{label}</span>
+    <span style={{ padding:"3px 9px", borderRadius:12, background:color+"22", color, fontFamily:"monospace", fontSize:11, fontWeight:700 }}>{label}</span>
   );
 
   const Row = ({label, value, color}) => (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-      padding:"10px 14px", background:"#0D1117", borderRadius:8, gap:12 }}>
-      <span style={{ fontSize:11, color:"#555", fontFamily:"monospace",
-        letterSpacing:"0.06em", textTransform:"uppercase", flexShrink:0 }}>{label}</span>
-      <span style={{ fontSize:13, color:color||"#ccc", fontFamily:"Georgia,serif",
-        textAlign:"right", lineHeight:1.4 }}>{value}</span>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"10px 14px", background:"#0D1117", borderRadius:8, gap:12 }}>
+      <span style={{ fontSize:11, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase", flexShrink:0 }}>{label}</span>
+      <span style={{ fontSize:13, color:color||"#ccc", fontFamily:"Georgia,serif", textAlign:"right", lineHeight:1.4 }}>{value}</span>
     </div>
   );
 
   return (
     <div style={{ minHeight:"100vh", background:"#0D1117", color:"#fff", fontFamily:"Georgia,serif" }}>
       <div style={{ padding:"24px 24px 0", display:"flex", alignItems:"center", gap:12 }}>
-        <button onClick={onBack} style={{ background:"none", border:"none", color:"#555",
-          cursor:"pointer", fontSize:20, padding:0 }}>←</button>
+        <button onClick={onBack} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:20, padding:0 }}>←</button>
         <div>
-          <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-            letterSpacing:"0.1em", textTransform:"uppercase" }}>Coach View</div>
-          <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, letterSpacing:"-0.02em" }}>
-            Player Dashboard
-          </h2>
+          <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase" }}>Coach View</div>
+          <h2 style={{ margin:0, fontWeight:"normal", fontSize:22, letterSpacing:"-0.02em" }}>Player Dashboard</h2>
         </div>
-        <button onClick={()=>setAuthed(false)}
-          style={{ marginLeft:"auto", background:"none", border:"none", color:"#444",
-            cursor:"pointer", fontFamily:"monospace", fontSize:11 }}>Log out</button>
+        <button onClick={()=>setAuthed(false)} style={{ marginLeft:"auto", background:"none", border:"none", color:"#444", cursor:"pointer", fontFamily:"monospace", fontSize:11 }}>Log out</button>
       </div>
 
-      {/* Sheet tabs */}
       <div style={{ display:"flex", padding:"18px 24px 0", borderBottom:"1px solid #1E252E" }}>
         {["morning","training"].map(t=>(
           <button key={t} onClick={()=>{setTab(t);setExpanded(null);}}
-            style={{ background:"none", border:"none", cursor:"pointer",
-              padding:"10px 20px", fontFamily:"monospace", fontSize:12,
-              letterSpacing:"0.06em", textTransform:"uppercase",
-              color: tab===t?"#4EB87A":"#555",
-              borderBottom: tab===t?"2px solid #4EB87A":"2px solid transparent" }}>
+            style={{ background:"none", border:"none", cursor:"pointer", padding:"10px 20px", fontFamily:"monospace", fontSize:12, letterSpacing:"0.06em", textTransform:"uppercase",
+              color: tab===t?"#4EB87A":"#555", borderBottom: tab===t?"2px solid #4EB87A":"2px solid transparent" }}>
             {t==="morning"?"🌅 Wake Up":"🎾 Training"}
           </button>
         ))}
       </div>
 
-      {/* Date tabs */}
-      <div style={{ display:"flex", overflowX:"auto", padding:"12px 24px 0",
-        borderBottom:"1px solid #1E252E" }}>
+      <div style={{ display:"flex", overflowX:"auto", padding:"12px 24px 0", borderBottom:"1px solid #1E252E" }}>
         {dates.map(d=>(
           <button key={d} onClick={()=>setSelDate(d)}
-            style={{ background:"none", border:"none", cursor:"pointer",
-              padding:"8px 14px", fontFamily:"monospace", fontSize:12, whiteSpace:"nowrap",
-              color: d===selDate?"#fff":"#444",
-              borderBottom: d===selDate?"2px solid #fff":"2px solid transparent" }}>
+            style={{ background:"none", border:"none", cursor:"pointer", padding:"8px 14px", fontFamily:"monospace", fontSize:12, whiteSpace:"nowrap",
+              color: d===selDate?"#fff":"#444", borderBottom: d===selDate?"2px solid #fff":"2px solid transparent" }}>
             {d===today()?"Today":fmt(d)}
           </button>
         ))}
@@ -520,45 +721,38 @@ function CoachDashboard({ onBack }) {
 
       <div style={{ padding:"20px 24px", maxWidth:620, margin:"0 auto" }}>
         {loading ? (
-          <p style={{ color:"#555", fontFamily:"monospace", textAlign:"center", marginTop:48 }}>
-            Loading...
-          </p>
+          <p style={{ color:"#555", fontFamily:"monospace", textAlign:"center", marginTop:48 }}>Loading...</p>
         ) : entries.length===0 ? (
           <div style={{ textAlign:"center", marginTop:60 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>📋</div>
-            <p style={{ color:"#555", fontFamily:"monospace", fontSize:13 }}>
-              No {tab} check-ins for this date yet.
-            </p>
+            <p style={{ color:"#555", fontFamily:"monospace", fontSize:13 }}>No {tab} check-ins for this date yet.</p>
           </div>
         ) : (
           <>
-            {/* Summary bar */}
-            <div style={{ background:"#161B22", borderRadius:12, padding:"16px 20px",
-              marginBottom:16, display:"flex", gap:20, flexWrap:"wrap", alignItems:"center" }}>
+            {/* Flag system */}
+            {tab==="morning" && <FlagPanel entries={entries}/>}
+
+            {/* Summary */}
+            <div style={{ background:"#161B22", borderRadius:12, padding:"16px 20px", marginBottom:16, display:"flex", gap:20, flexWrap:"wrap", alignItems:"center" }}>
               <div>
-                <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                  letterSpacing:"0.08em", textTransform:"uppercase" }}>Submitted</div>
-                <div style={{ fontSize:28, fontWeight:700, color:"#4EB87A",
-                  fontFamily:"Georgia,serif" }}>{entries.length}</div>
+                <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase" }}>Submitted</div>
+                <div style={{ fontSize:28, fontWeight:700, color:"#4EB87A", fontFamily:"Georgia,serif" }}>{entries.length}</div>
               </div>
               {tab==="morning" && <>
                 <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Sleep</div>
+                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Sleep</div>
                   <div style={{ fontSize:20, color:"#fff", fontFamily:"Georgia,serif", fontWeight:700 }}>
                     {entries.length ? (entries.reduce((a,e)=>a+(e.sleepHrs||0),0)/entries.length).toFixed(1)+"h" : "–"}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Soreness</div>
+                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Soreness</div>
                   <div style={{ fontSize:20, color:"#fff", fontFamily:"Georgia,serif", fontWeight:700 }}>
                     {entries.length ? (entries.reduce((a,e)=>a+(e.soreness||0),0)/entries.length).toFixed(1)+"/5" : "–"}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>💧 Flags</div>
+                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>💧 Flags</div>
                   <div style={{ fontSize:20, color:"#E05C5C", fontFamily:"Georgia,serif", fontWeight:700 }}>
                     {entries.filter(e=>e.urine==="Dark Yellow").length}
                   </div>
@@ -566,22 +760,13 @@ function CoachDashboard({ onBack }) {
               </>}
               {tab==="training" && <>
                 <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Warm-up</div>
+                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Warm-up</div>
                   <div style={{ fontSize:20, color:"#fff", fontFamily:"Georgia,serif", fontWeight:700 }}>
                     {entries.length ? (entries.reduce((a,e)=>a+(e.warmup||0),0)/entries.length).toFixed(1)+"/5" : "–"}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>Avg Focus</div>
-                  <div style={{ fontSize:20, color:"#fff", fontFamily:"Georgia,serif", fontWeight:700 }}>
-                    {entries.length ? (entries.reduce((a,e)=>a+(e.focusRating||0),0)/entries.length).toFixed(1)+"/5" : "–"}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace",
-                    letterSpacing:"0.06em", textTransform:"uppercase" }}>🔴 Culture</div>
+                  <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>🔴 Culture</div>
                   <div style={{ fontSize:20, color:"#E05C5C", fontFamily:"Georgia,serif", fontWeight:700 }}>
                     {entries.filter(e=>e.culture==="Red").length}
                   </div>
@@ -593,25 +778,16 @@ function CoachDashboard({ onBack }) {
             {entries.map(e => {
               const isOpen = expanded===e.id;
               return (
-                <div key={e.id} style={{ background:"#161B22", borderRadius:12,
-                  marginBottom:10, overflow:"hidden",
-                  border:`1px solid ${isOpen?"#30363D":"#1E252E"}` }}>
+                <div key={e.id} style={{ background:"#161B22", borderRadius:12, marginBottom:10, overflow:"hidden", border:`1px solid ${isOpen?"#30363D":"#1E252E"}` }}>
                   <div onClick={()=>setExpanded(isOpen?null:e.id)}
-                    style={{ padding:"14px 18px", display:"flex", alignItems:"center",
-                      gap:14, cursor:"pointer" }}>
+                    style={{ padding:"14px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:15, letterSpacing:"-0.01em" }}>{e.name}</div>
                       {tab==="morning" && e.emotions?.length>0 && (
-                        <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", marginTop:4 }}>
-                          {e.emotions.join(" · ")}
-                        </div>
+                        <div style={{ fontSize:11, color:"#555", fontFamily:"monospace", marginTop:4 }}>{e.emotions.join(" · ")}</div>
                       )}
                       {tab==="training" && e.focusText && (
-                        <div style={{ fontSize:12, color:"#555", fontFamily:"monospace",
-                          marginTop:4, whiteSpace:"nowrap", overflow:"hidden",
-                          textOverflow:"ellipsis", maxWidth:180 }}>
-                          "{e.focusText}"
-                        </div>
+                        <div style={{ fontSize:12, color:"#555", fontFamily:"monospace", marginTop:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:180 }}>"{e.focusText}"</div>
                       )}
                     </div>
                     <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>
@@ -650,6 +826,27 @@ function CoachDashboard({ onBack }) {
                           {e.drive && <Row label="Drive for tomorrow" value={`"${e.drive}"`}/>}
                         </>}
                       </div>
+
+                      {/* Coach note */}
+                      <div style={{ marginTop:14 }}>
+                        <div style={{ fontSize:10, color:"#555", fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Coach Note</div>
+                        <textarea
+                          value={coachNote[e.id] || ""}
+                          onChange={ev => setCoachNote(prev=>({...prev,[e.id]:ev.target.value}))}
+                          placeholder="Add a note for this player..."
+                          rows={2}
+                          style={{ width:"100%", background:"#0D1117", border:"1px solid #252D38", borderRadius:8, padding:"10px 12px", color:"#fff", fontSize:13, fontFamily:"Georgia,serif", resize:"none", outline:"none", boxSizing:"border-box" }}/>
+                        <div style={{ display:"flex", gap:10, marginTop:8 }}>
+                          <button onClick={()=>saveNote(e.id, coachNote[e.id]||"")} disabled={savingNote===e.id}
+                            style={{ background:"#4EB87A", border:"none", borderRadius:8, padding:"8px 16px", color:"#fff", cursor:"pointer", fontFamily:"monospace", fontSize:12 }}>
+                            {savingNote===e.id ? "Saving..." : "Save Note"}
+                          </button>
+                          <button onClick={()=>setViewingPlayer(e.name)}
+                            style={{ background:"none", border:"1px solid #252D38", borderRadius:8, padding:"8px 16px", color:"#aaa", cursor:"pointer", fontFamily:"monospace", fontSize:12 }}>
+                            View Full History
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -662,59 +859,38 @@ function CoachDashboard({ onBack }) {
   );
 }
 
-// ── Home ──────────────────────────────────────────────────────────────────────
+// ── Home ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState("home");
   if (view==="player") return <PlayerView  onBack={()=>setView("home")}/>;
   if (view==="coach")  return <CoachDashboard onBack={()=>setView("home")}/>;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#0D1117", display:"flex",
-      flexDirection:"column", alignItems:"center", justifyContent:"center",
-      padding:32, fontFamily:"Georgia,serif" }}>
-      <div style={{ position:"fixed", inset:0, pointerEvents:"none",
-        backgroundImage:"radial-gradient(circle at 15% 60%, #0a2518 0%, transparent 45%), radial-gradient(circle at 85% 20%, #0d1f2d 0%, transparent 45%)" }}/>
-
+    <div style={{ minHeight:"100vh", background:"#0D1117", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32, fontFamily:"Georgia,serif" }}>
+      <div style={{ position:"fixed", inset:0, pointerEvents:"none", backgroundImage:"radial-gradient(circle at 15% 60%, #0a2518 0%, transparent 45%), radial-gradient(circle at 85% 20%, #0d1f2d 0%, transparent 45%)" }}/>
       <div style={{ position:"relative", zIndex:1, textAlign:"center", maxWidth:360, width:"100%" }}>
         <div style={{ fontSize:52, marginBottom:8 }}>🎾</div>
-        <h1 style={{ margin:"0 0 4px", fontSize:30, fontWeight:"normal", color:"#fff",
-          letterSpacing:"-0.03em" }}>TennisReady</h1>
-        <p style={{ color:"#444", fontFamily:"monospace", fontSize:12,
-          letterSpacing:"0.08em", marginBottom:6 }}>TEAMBATH</p>
-        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12,
-          letterSpacing:"0.04em", marginBottom:48 }}>Daily wellness & session tracker</p>
-
+        <h1 style={{ margin:"0 0 4px", fontSize:30, fontWeight:"normal", color:"#fff", letterSpacing:"-0.03em" }}>TennisReady</h1>
+        <p style={{ color:"#444", fontFamily:"monospace", fontSize:12, letterSpacing:"0.08em", marginBottom:6 }}>TEAMBATH</p>
+        <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, letterSpacing:"0.04em", marginBottom:48 }}>Daily wellness & session tracker</p>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <button onClick={()=>setView("player")}
-            style={{ background:"#4EB87A", border:"none", borderRadius:14,
-              padding:"20px 24px", color:"#fff", cursor:"pointer", fontSize:17,
-              fontFamily:"Georgia,serif", letterSpacing:"-0.01em",
-              display:"flex", alignItems:"center", justifyContent:"space-between",
-              transition:"opacity 0.2s" }}
+            style={{ background:"#4EB87A", border:"none", borderRadius:14, padding:"20px 24px", color:"#fff", cursor:"pointer", fontSize:17, fontFamily:"Georgia,serif", letterSpacing:"-0.01em", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"opacity 0.2s" }}
             onMouseEnter={e=>e.currentTarget.style.opacity="0.88"}
             onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
             <div style={{ textAlign:"left" }}>
               <div style={{ fontWeight:600 }}>I'm a Player</div>
-              <div style={{ fontSize:12, opacity:0.8, fontFamily:"monospace", marginTop:2 }}>
-                Morning & session check-in
-              </div>
+              <div style={{ fontSize:12, opacity:0.8, fontFamily:"monospace", marginTop:2 }}>Check-in & view my dashboard</div>
             </div>
             <span style={{ fontSize:22 }}>→</span>
           </button>
-
           <button onClick={()=>setView("coach")}
-            style={{ background:"#161B22", border:"1px solid #252D38", borderRadius:14,
-              padding:"20px 24px", color:"#fff", cursor:"pointer", fontSize:17,
-              fontFamily:"Georgia,serif", letterSpacing:"-0.01em",
-              display:"flex", alignItems:"center", justifyContent:"space-between",
-              transition:"border-color 0.2s" }}
+            style={{ background:"#161B22", border:"1px solid #252D38", borderRadius:14, padding:"20px 24px", color:"#fff", cursor:"pointer", fontSize:17, fontFamily:"Georgia,serif", letterSpacing:"-0.01em", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"border-color 0.2s" }}
             onMouseEnter={e=>e.currentTarget.style.borderColor="#4EB87A"}
             onMouseLeave={e=>e.currentTarget.style.borderColor="#252D38"}>
             <div style={{ textAlign:"left" }}>
               <div style={{ fontWeight:600 }}>I'm a Coach</div>
-              <div style={{ fontSize:12, opacity:0.5, fontFamily:"monospace", marginTop:2 }}>
-                View all player data
-              </div>
+              <div style={{ fontSize:12, opacity:0.5, fontFamily:"monospace", marginTop:2 }}>View all player data</div>
             </div>
             <span style={{ fontSize:22 }}>→</span>
           </button>
@@ -723,3 +899,23 @@ export default function App() {
     </div>
   );
 }
+Done
+That's the full code — select it all from import { useState at the top to the last } at the bottom, copy it, and paste it into GitHub. Commit and Vercel will redeploy in ~3 minutes! 🎾
+
+what part do I copy the output?
+
+07:18
+Copy everything that appears after the word stdout:
+
+Start copying from:
+
+import { useState, useEffect } from "react";
+All the way down to the very last:
+
+}
+It's a lot of text — the easiest way is to click at the very start of import, then scroll all the way to the bottom and Shift+click at the very end to select it all. Then Ctrl+C to copy.
+
+Then paste into GitHub! 🎾
+
+
+
