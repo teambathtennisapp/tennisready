@@ -504,7 +504,32 @@ function PlayerView({ onBack }) {
   const [name, setName]       = useState("");
   const [nameSet, setNameSet] = useState(false);
   const [step, setStep]       = useState(0); // 0=morning, 1=morningDone, 2=training, 3=allDone, 4=history
+  const [checking, setChecking] = useState(false);
   const reset = () => { setName(""); setNameSet(false); setStep(0); };
+ 
+  const handleNameSet = async () => {
+    if (!name.trim()) return;
+    setChecking(true);
+    try {
+      // Query by name and date only (no third field = no composite index needed)
+      const q = query(collection(db,"checkins"),
+        where("name","==",name.trim()),
+        where("date","==",today()));
+      const snap = await getDocs(q);
+      const sheets = snap.docs.map(d=>d.data().sheet);
+      const morningDone = sheets.includes("morning");
+      const trainingDone = sheets.includes("training");
+      if (morningDone && trainingDone) {
+        setStep(3); // both done
+      } else if (morningDone) {
+        setStep(2); // morning done, go straight to training
+      } else {
+        setStep(0); // nothing done yet, start with morning
+      }
+    } catch(e) { console.error(e); setStep(0); }
+    setChecking(false);
+    setNameSet(true);
+  };
  
   if (step===4) return <PlayerHistory name={name} onBack={()=>setStep(step===3?3:1)}/>;
   if (step===3) return <DoneScreen name={name} onReset={reset} onHistory={()=>setStep(4)} morningOnly={false}/>;
@@ -533,12 +558,15 @@ function PlayerView({ onBack }) {
             <Label>Your name</Label>
             <div style={{ display:"flex", gap:10 }}>
               <input value={name} onChange={e=>setName(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&name.trim()&&setNameSet(true)}
+                onKeyDown={e=>e.key==="Enter"&&!checking&&handleNameSet()}
                 placeholder="First and last name..."
                 style={{ flex:1, background:"#161B22", border:"1px solid #252D38", borderRadius:10, padding:"14px", color:"#fff", fontSize:15, fontFamily:"Georgia,serif", outline:"none" }}/>
-              <button onClick={()=>name.trim()&&setNameSet(true)}
-                style={{ background:"#4EB87A", border:"none", borderRadius:10, padding:"14px 20px", color:"#fff", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>Go</button>
+              <button onClick={handleNameSet} disabled={checking}
+                style={{ background:"#4EB87A", border:"none", borderRadius:10, padding:"14px 20px", color:"#fff", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:700 }}>
+                {checking ? "..." : "Go"}
+              </button>
             </div>
+            {checking && <p style={{ color:"#555", fontFamily:"monospace", fontSize:12, marginTop:10, textAlign:"center" }}>Checking your check-ins...</p>}
           </div>
         ) : (
           <>
@@ -555,6 +583,9 @@ function PlayerView({ onBack }) {
             )}
             {step===2 && (
               <>
+                <div style={{ background:"#0E2A1A", border:"1px solid #4EB87A33", borderRadius:10, padding:"12px 16px", marginBottom:20, textAlign:"center" }}>
+                  <span style={{ fontSize:13, color:"#4EB87A", fontFamily:"monospace" }}>✓ Morning check-in already submitted today</span>
+                </div>
                 <div style={{ display:"flex", justifyContent:"center", marginBottom:28 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                     <div style={{ width:8, height:8, borderRadius:"50%", background:"#4EB87A" }}/>
